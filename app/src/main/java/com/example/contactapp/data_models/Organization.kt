@@ -2,8 +2,10 @@ package com.example.contactapp.data_models
 
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
 
 @Parcelize
+@Serializable
 data class Organization(
     val company: String?,
     val title: String?,

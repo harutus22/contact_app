@@ -2,35 +2,83 @@ package com.example.contactapp.repository
 
 import android.content.ContentResolver
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.ContactsContract
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import com.example.contactapp.data_models.Contact
 import com.example.contactapp.data_models.Organization
+import java.util.concurrent.Executors
 
 class ContactsRepository(
-    context: Context
+    context: Context,
 ) {
 
     private val contentResolver: ContentResolver =
         context.applicationContext.contentResolver
 
-    fun getContacts(): List<Contact> {
-        val contacts = mutableMapOf<Long, ContactBuilder>()
+    private val executor = Executors.newSingleThreadExecutor()
 
-        loadNames(contacts)
-        loadPhotos(contacts)
-        loadPhones(contacts)
-        loadEmails(contacts)
-        loadAddresses(contacts)
-        loadOrganizations(contacts)
-        loadBirthdays(contacts)
+    private val _contacts = object : MutableLiveData<List<Contact>>() {
+        private var contentObserver: ContentObserver? = null
 
-        return contacts.values
-            .map { it.build() }
-            .sortedBy { it.name?.lowercase() }
+        override fun onActive() {
+            super.onActive()
+            if (contentObserver == null) {
+                contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) {
+                        fetchAndEmitContacts()
+                    }
+                }
+                contentResolver.registerContentObserver(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    true,
+                    contentObserver!!,
+                )
+            }
+            fetchAndEmitContacts()
+        }
+
+        override fun onInactive() {
+            super.onInactive()
+            contentObserver?.let { observer ->
+                contentResolver.unregisterContentObserver(observer)
+                contentObserver = null
+            }
+        }
+    }
+
+    val contactsLiveData: LiveData<List<Contact>> = _contacts
+
+    fun getContacts(): LiveData<List<Contact>> {
+        fetchAndEmitContacts()
+        return contactsLiveData
+    }
+
+    private fun fetchAndEmitContacts() {
+        executor.execute {
+            val contactsMap = mutableMapOf<Long, ContactBuilder>()
+
+            loadNames(contactsMap)
+            loadPhotos(contactsMap)
+            loadPhones(contactsMap)
+            loadEmails(contactsMap)
+            loadAddresses(contactsMap)
+            loadOrganizations(contactsMap)
+            loadBirthdays(contactsMap)
+
+            val result = contactsMap.values
+                .map { it.build() }
+                .sortedBy { it.name?.lowercase() }
+
+            _contacts.postValue(result)
+        }
     }
 
     private fun loadNames(
-        contacts: MutableMap<Long, ContactBuilder>
+        contacts: MutableMap<Long, ContactBuilder>,
     ) {
         val projection = arrayOf(
             ContactsContract.Data.CONTACT_ID,
